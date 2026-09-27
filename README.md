@@ -251,15 +251,93 @@ Retry the image pull separately:
 docker pull mysql:8.4
 ```
 
-## Production Notes
+## Production Compose
 
 This `compose.yaml` is intended for local integration because it builds from
-`../be` and `../fe` and exposes the backend on localhost. Production deployment
-will use a separate Compose file that:
+`../be` and `../fe`. The standalone `compose.prod.yaml` pulls prebuilt images
+from GHCR and publishes only the frontend Nginx port.
 
-- Pulls immutable backend and frontend image tags from a registry.
-- Publishes only the Nginx HTTP/HTTPS ports.
-- Supplies secrets through the deployment platform.
-- Uses database migrations instead of Hibernate schema updates.
-- Disables development SQL logging and public API documentation.
-- Adds TLS, backups, resource limits, and a rollback procedure.
+Create the production environment file:
+
+```bash
+cp .env.prod.example .env.prod
+```
+
+Replace every secret placeholder with a unique random value:
+
+```bash
+openssl rand -hex 24
+openssl rand -hex 24
+openssl rand -base64 48
+```
+
+For a local production-like test, use `HTTP_PORT=3002`. On a server, use port
+`80` until TLS is configured.
+
+Validate the configuration:
+
+```bash
+docker compose \
+  --env-file .env.prod \
+  -f compose.prod.yaml \
+  config --quiet
+```
+
+Pull immutable application images:
+
+```bash
+docker compose \
+  --env-file .env.prod \
+  -f compose.prod.yaml \
+  pull
+```
+
+Start the production stack and wait for health checks:
+
+```bash
+docker compose \
+  --env-file .env.prod \
+  -f compose.prod.yaml \
+  up -d --wait --wait-timeout 180
+```
+
+Check status:
+
+```bash
+docker compose \
+  --env-file .env.prod \
+  -f compose.prod.yaml \
+  ps
+```
+
+Stop and remove production containers while preserving database data:
+
+```bash
+docker compose \
+  --env-file .env.prod \
+  -f compose.prod.yaml \
+  down
+```
+
+The production stack uses a separate `connect-prod_mysql_data` volume. Never
+run `down -v` unless the production database must be permanently deleted.
+
+For real releases, set `BACKEND_TAG` and `FRONTEND_TAG` to explicit version
+tags such as `v1.0.0`. Do not deploy the moving `develop` tag to production.
+
+The GHCR images are:
+
+```text
+ghcr.io/ynnhi2607/connect-be
+ghcr.io/ynnhi2607/connect-frontend
+```
+
+## Remaining Production Hardening
+
+- Add Flyway migrations, then change Hibernate `ddl-auto` from `update` to
+  `validate`.
+- Configure HTTPS with Nginx and Certbot.
+- Store server secrets outside Git and rotate them regularly.
+- Configure MySQL backups and verify restore procedures.
+- Add container resource limits, monitoring, and log rotation.
+- Document versioned deployment and rollback procedures.
