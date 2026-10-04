@@ -31,6 +31,7 @@ jobs:
       MYSQL_ROOT_PASSWORD: ci-only-root-password
       JWT_SECRET: ci-only-jwt-secret-with-at-least-32-characters
       JWT_TTL_HOURS: "24"
+      CORS_ALLOWED_ORIGINS: http://localhost:3002
 
       BACKEND_IMAGE: ghcr.io/ynnhi2607/connect-be
       BACKEND_TAG: develop
