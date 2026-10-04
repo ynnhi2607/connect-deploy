@@ -255,7 +255,8 @@ docker pull mysql:8.4
 
 This `compose.yaml` is intended for local integration because it builds from
 `../be` and `../fe`. The standalone `compose.prod.yaml` pulls prebuilt images
-from GHCR and publishes only the frontend Nginx port.
+from GHCR and publishes the frontend Nginx port on the host interface
+configured by `HTTP_PORT`.
 
 Create the production environment file:
 
@@ -271,8 +272,9 @@ openssl rand -hex 24
 openssl rand -base64 48
 ```
 
-For a local production-like test, use `HTTP_PORT=3002`. On a server, use port
-`80` until TLS is configured.
+For a local production-like test, use `HTTP_PORT=3002`. On the production
+server, use `HTTP_PORT=127.0.0.1:3000` so only the host Nginx proxy can
+reach the frontend container.
 
 Validate the configuration:
 
@@ -332,12 +334,58 @@ ghcr.io/ynnhi2607/connect-be
 ghcr.io/ynnhi2607/connect-frontend
 ```
 
+## HTTPS Edge Proxy
+
+Production uses `connect-nanest.duckdns.org`. The frontend container listens
+only on `127.0.0.1:3000`; host Nginx owns public ports 80 and 443.
+
+On a new Ubuntu host, install Nginx and copy the HTTP bootstrap configuration:
+
+```bash
+sudo apt update
+sudo apt install -y nginx
+sudo cp nginx/connect-nanest.conf /etc/nginx/sites-available/connect-nanest
+sudo ln -s /etc/nginx/sites-available/connect-nanest \
+  /etc/nginx/sites-enabled/connect-nanest
+sudo unlink /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+After DNS points to the server and ports 80 and 443 are open, install Certbot
+and let it add the certificate paths and HTTP-to-HTTPS redirect:
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d connect-nanest.duckdns.org
+sudo certbot renew --dry-run
+```
+
+The repository file is only the bootstrap configuration. Do not copy it over
+an Nginx site that Certbot has already updated, because that would remove the
+active TLS directives. Certificates and private keys under `/etc/letsencrypt`
+must remain on the server and must never be committed.
+
+Set these production environment values before recreating the services:
+
+```text
+HTTP_PORT=127.0.0.1:3000
+CORS_ALLOWED_ORIGINS=https://connect-nanest.duckdns.org
+```
+
+Verify the edge after deployment:
+
+```bash
+curl -I https://connect-nanest.duckdns.org
+sudo nginx -t
+sudo systemctl status nginx --no-pager
+```
+
 ## Remaining Production Hardening
 
 - Add Flyway migrations, then change Hibernate `ddl-auto` from `update` to
   `validate`.
-- Configure HTTPS with Nginx and Certbot.
 - Store server secrets outside Git and rotate them regularly.
 - Configure MySQL backups and verify restore procedures.
-- Add container resource limits, monitoring, and log rotation.
+- Add monitoring and codify Docker log rotation.
 - Document versioned deployment and rollback procedures.
