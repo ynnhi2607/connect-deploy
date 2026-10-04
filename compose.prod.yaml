@@ -41,11 +41,11 @@ services:
     image: "${BACKEND_IMAGE:?BACKEND_IMAGE is required}:${BACKEND_TAG:?BACKEND_TAG is required}"
     pull_policy: always
     restart: unless-stopped
-    mem_limit: 448m
+    mem_limit: 512m
 
     environment:
       JAVA_TOOL_OPTIONS: >-
-        -Xms64m -Xmx224m -Xss256k -XX:MaxMetaspaceSize=96m
+        -Xms64m -Xmx224m -Xss256k -XX:MaxMetaspaceSize=160m
         -XX:+UseSerialGC
       DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-connectspace}
       DB_USERNAME: ${MYSQL_USER:-connect}
