@@ -455,3 +455,71 @@ on `main`, enter `deploy`, and confirm. The workflow:
 
 MySQL is not recreated by this workflow. The `.env.prod` file and MySQL volume
 remain on the VM.
+
+## MySQL Backups
+
+The production VM creates a compressed logical dump each day. Backup files are
+written atomically with mode `600` under `/opt/connect/backups`; incomplete dumps
+are removed, and local files older than seven days are deleted.
+
+Install the systemd units after releasing this repository to production:
+
+```bash
+cd /opt/connect
+git pull --ff-only origin main
+sudo install -m 644 systemd/connect-backup.service \
+  /etc/systemd/system/connect-backup.service
+sudo install -m 644 systemd/connect-backup.timer \
+  /etc/systemd/system/connect-backup.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now connect-backup.timer
+```
+
+Run and inspect the first automated backup immediately:
+
+```bash
+sudo systemctl start connect-backup.service
+sudo systemctl status connect-backup.service --no-pager
+sudo systemctl list-timers connect-backup.timer --no-pager
+journalctl -u connect-backup.service -n 50 --no-pager
+ls -lh /opt/connect/backups
+```
+
+The timer runs around `02:30 UTC` each day with a randomized delay of up to 15
+minutes. `Persistent=true` runs a missed backup after the VM starts again.
+
+Periodically verify restoration into a disposable database. Never restore a dump
+directly over the production database as a test:
+
+```bash
+cd /opt/connect
+backup="$(find backups -name 'connectspace-*.sql.gz' -type f | sort | tail -1)"
+test -n "$backup"
+gzip -t "$backup"
+
+docker compose --env-file .env.prod -f compose.prod.yaml exec -T mysql \
+  sh -lc 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -e "
+    DROP DATABASE IF EXISTS connectspace_restore_check;
+    CREATE DATABASE connectspace_restore_check;
+  "'
+
+gzip -cd "$backup" | docker compose \
+  --env-file .env.prod \
+  -f compose.prod.yaml \
+  exec -T mysql \
+  sh -lc 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot connectspace_restore_check'
+
+docker compose --env-file .env.prod -f compose.prod.yaml exec -T mysql \
+  sh -lc 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -e "
+    USE connectspace_restore_check;
+    SHOW TABLES;
+  "'
+
+docker compose --env-file .env.prod -f compose.prod.yaml exec -T mysql \
+  sh -lc 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -e "
+    DROP DATABASE connectspace_restore_check;
+  "'
+```
+
+These backups still share the VM disk with the database. Copy them to encrypted
+offsite storage before treating the backup plan as complete.

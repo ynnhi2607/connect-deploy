@@ -1,0 +1,13 @@
+[Unit]
+Description=Back up the Connect production MySQL database
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=azureuser
+WorkingDirectory=/opt/connect
+Environment=DEPLOY_PATH=/opt/connect
+Environment=BACKUP_RETENTION_DAYS=7
+UMask=0077
+ExecStart=/opt/connect/scripts/backup-mysql.sh

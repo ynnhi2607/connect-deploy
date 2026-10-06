@@ -63,7 +63,11 @@ jobs:
       - name: Validate deployment scripts
         run: |
           bash -n scripts/deploy-production.sh
+          bash -n scripts/backup-mysql.sh
+          bash -n scripts/test-deploy-production.sh
+          bash -n scripts/test-backup-mysql.sh
           scripts/test-deploy-production.sh
+          scripts/test-backup-mysql.sh
 
       - name: Validate local Compose
         run: docker compose -f compose.yaml config --quiet
