@@ -389,3 +389,69 @@ sudo systemctl status nginx --no-pager
 - Configure MySQL backups and verify restore procedures.
 - Add monitoring and codify Docker log rotation.
 - Document versioned deployment and rollback procedures.
+
+## Manual Production CD
+
+Production deployment is intentionally manual. A successful merge to `main`
+does not immediately modify the VM. Run the `Production CD` workflow only
+after the application image workflows for `main` have completed.
+
+Create a dedicated key on the operator machine. Do not reuse a personal SSH
+private key:
+
+```bash
+ssh-keygen \
+  -t ed25519 \
+  -C "github-actions-connect-prod" \
+  -f ~/.ssh/connect_prod_actions \
+  -N ""
+
+ssh-copy-id \
+  -i ~/.ssh/connect_prod_actions.pub \
+  azureuser@connect-nanest.duckdns.org
+```
+
+Verify the host key before storing it in GitHub. On the VM, display the trusted
+ED25519 fingerprint:
+
+```bash
+sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+On the operator machine, collect the same host key and compare its fingerprint
+with the VM output:
+
+```bash
+ssh-keyscan -t ed25519 connect-nanest.duckdns.org \
+  > ~/.ssh/connect_prod_known_hosts
+ssh-keygen -lf ~/.ssh/connect_prod_known_hosts
+```
+
+In the GitHub repository, create an environment named `production`. Restrict
+its deployment branch to `main` and configure these environment values:
+
+| Type | Name | Value |
+| --- | --- | --- |
+| Secret | `PROD_SSH_PRIVATE_KEY` | Contents of `~/.ssh/connect_prod_actions` |
+| Secret | `PROD_SSH_KNOWN_HOSTS` | Contents of `~/.ssh/connect_prod_known_hosts` |
+| Variable | `PROD_HOST` | `connect-nanest.duckdns.org` |
+| Variable | `PROD_SSH_USER` | `azureuser` |
+| Variable | `PROD_PATH` | `/opt/connect` |
+
+Never paste either secret into an issue, pull request, terminal screenshot, or
+tracked file. Add a required reviewer to the `production` environment when the
+repository plan supports deployment protection rules.
+
+To deploy, open **Actions**, choose **Production CD**, select **Run workflow**
+on `main`, enter `deploy`, and confirm. The workflow:
+
+1. verifies the selected branch and explicit confirmation;
+2. connects using the dedicated key and pinned SSH host key;
+3. fast-forwards `/opt/connect` to `origin/main` and verifies it still
+   matches the commit selected by the workflow;
+4. validates Compose and pulls the `main` application images;
+5. recreates backend and frontend in order and waits for health checks; and
+6. verifies `https://connect-nanest.duckdns.org/health` from the runner.
+
+MySQL is not recreated by this workflow. The `.env.prod` file and MySQL volume
+remain on the VM.

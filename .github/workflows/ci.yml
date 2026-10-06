@@ -60,6 +60,11 @@ jobs:
             exit 1
           fi
 
+      - name: Validate deployment scripts
+        run: |
+          bash -n scripts/deploy-production.sh
+          scripts/test-deploy-production.sh
+
       - name: Validate local Compose
         run: docker compose -f compose.yaml config --quiet
 
