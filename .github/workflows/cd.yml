@@ -1,0 +1,78 @@
+name: Production CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type deploy to confirm the production release
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Azure VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://connect-nanest.duckdns.org
+
+    steps:
+      - name: Require main branch and explicit confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$CONFIRMATION" = "deploy"
+
+      - name: Checkout deployment scripts
+        uses: actions/checkout@v7
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
+        run: |
+          test -n ""
+          test -n ""
+          install -m 700 -d ~/.ssh
+          printf "%s\n" "$SSH_PRIVATE_KEY" > ~/.ssh/production
+          chmod 600 ~/.ssh/production
+          printf "%s\n" "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          ssh-keygen -y -f ~/.ssh/production > /dev/null
+
+      - name: Deploy application services
+        env:
+          PROD_HOST: ${{ vars.PROD_HOST }}
+          PROD_SSH_USER: ${{ vars.PROD_SSH_USER }}
+          PROD_PATH: ${{ vars.PROD_PATH }}
+          DEPLOY_REVISION: ${{ github.sha }}
+        run: |
+          : "${PROD_HOST:?PROD_HOST variable is required}"
+          : "${PROD_SSH_USER:?PROD_SSH_USER variable is required}"
+          : "${PROD_PATH:?PROD_PATH variable is required}"
+          ssh \
+            -i ~/.ssh/production \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            "$PROD_SSH_USER@$PROD_HOST" \
+            "DEPLOY_PATH='$PROD_PATH' DEPLOY_REVISION='$DEPLOY_REVISION' bash -s" \
+            < scripts/deploy-production.sh
+
+      - name: Verify public HTTPS health
+        run: |
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 6 \
+            --retry-delay 5 \
+            https://connect-nanest.duckdns.org/health
