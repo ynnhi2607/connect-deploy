@@ -460,7 +460,26 @@ remain on the VM.
 
 The production VM creates a compressed logical dump each day. Backup files are
 written atomically with mode `600` under `/opt/connect/backups`; incomplete dumps
-are removed, and local files older than seven days are deleted.
+are removed, and local files older than seven days are deleted. After a dump is
+verified, AzCopy uploads it to the private `mysql-backups` container in the
+`stconnectnanest2607` Azure Storage account.
+
+The VM uses its system-assigned Managed Identity, so no storage account key or
+SAS token is stored on disk. Before enabling the timer:
+
+1. install AzCopy on the VM;
+2. enable the VM system-assigned Managed Identity;
+3. grant that identity `Storage Blob Data Contributor` on the
+   `mysql-backups` container; and
+4. configure an Azure lifecycle rule to delete base blobs matching
+   `mysql-backups/connectspace-` 30 days after their last modification.
+
+Confirm that the identity can list the private container:
+
+```bash
+AZCOPY_AUTO_LOGIN_TYPE=MSI azcopy list \
+  'https://stconnectnanest2607.blob.core.windows.net/mysql-backups'
+```
 
 Install the systemd units after releasing this repository to production:
 
@@ -483,6 +502,8 @@ sudo systemctl status connect-backup.service --no-pager
 sudo systemctl list-timers connect-backup.timer --no-pager
 journalctl -u connect-backup.service -n 50 --no-pager
 ls -lh /opt/connect/backups
+AZCOPY_AUTO_LOGIN_TYPE=MSI azcopy list \
+  'https://stconnectnanest2607.blob.core.windows.net/mysql-backups'
 ```
 
 The timer runs around `02:30 UTC` each day with a randomized delay of up to 15
@@ -521,5 +542,7 @@ docker compose --env-file .env.prod -f compose.prod.yaml exec -T mysql \
   "'
 ```
 
-These backups still share the VM disk with the database. Copy them to encrypted
-offsite storage before treating the backup plan as complete.
+The local copy supports quick recovery, while the Azure Blob copy remains
+available if the VM or its disk is lost. Azure encrypts the private container at
+rest, and AzCopy sends the dump over TLS. Periodically test restoration from a
+downloaded Blob copy as well as from the local copy.
