@@ -40,8 +40,8 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
         run: |
-          test -n ""
-          test -n ""
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
           install -m 700 -d ~/.ssh
           printf "%s\n" "$SSH_PRIVATE_KEY" > ~/.ssh/production
           chmod 600 ~/.ssh/production
