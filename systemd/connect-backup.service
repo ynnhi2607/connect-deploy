@@ -9,5 +9,6 @@ User=azureuser
 WorkingDirectory=/opt/connect
 Environment=DEPLOY_PATH=/opt/connect
 Environment=BACKUP_RETENTION_DAYS=7
+Environment=AZURE_BACKUP_CONTAINER_URL=https://stconnectnanest2607.blob.core.windows.net/mysql-backups
 UMask=0077
 ExecStart=/opt/connect/scripts/backup-mysql.sh
