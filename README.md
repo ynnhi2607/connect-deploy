@@ -383,8 +383,6 @@ sudo systemctl status nginx --no-pager
 
 ## Remaining Production Hardening
 
-- Add Flyway migrations, then change Hibernate `ddl-auto` from `update` to
-  `validate`.
 - Store server secrets outside Git and rotate them regularly.
 - Configure MySQL backups and verify restore procedures.
 - Add monitoring and codify Docker log rotation.
@@ -455,6 +453,45 @@ on `main`, enter `deploy`, and confirm. The workflow:
 
 MySQL is not recreated by this workflow. The `.env.prod` file and MySQL volume
 remain on the VM.
+
+## First Flyway release on production
+
+Production already has a `users` table. The first Flyway release contains
+`V1__create_users.sql`; baseline the existing database at version 1 before
+running the production CD workflow with the new backend image. Do not execute V1
+against the populated database.
+
+1. Merge the backend Flyway PR and wait for the `main` image to be published.
+   Keep the existing backend container running.
+2. Confirm a recent MySQL backup and a tested restore. On the VM, in
+   `/opt/connect`, pull the new backend image without restarting the service:
+
+   ```bash
+   docker compose --env-file .env.prod -f compose.prod.yaml pull backend
+   ```
+
+3. Baseline only this one-off backend process, then stop it with Ctrl+C after
+   `Started BeApplication` appears:
+
+   ```bash
+   docker compose --env-file .env.prod -f compose.prod.yaml run --rm --no-deps \
+     -e SPRING_FLYWAY_BASELINE_ON_MIGRATE=true \
+     -e SPRING_FLYWAY_BASELINE_VERSION=1 \
+     -e SPRING_JPA_HIBERNATE_DDL_AUTO=validate backend
+   ```
+
+4. Confirm that Flyway recorded version `1`, type `BASELINE`, success `1`:
+
+   ```bash
+   docker compose --env-file .env.prod -f compose.prod.yaml exec -T mysql sh -lc \
+     'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u"$MYSQL_USER" "$MYSQL_DATABASE" -e "SELECT version, type, success FROM flyway_schema_history"'
+   ```
+
+If the one-off backend did not start or the history differs, do not run CD.
+After baseline succeeds, merge the deploy PR containing `ddl-auto=validate`,
+then run the manual Production CD workflow. Never permanently enable
+`baseline-on-migrate`; subsequent migrations run automatically from the new
+backend image.
 
 ## MySQL Backups
 
